@@ -1,17 +1,32 @@
 <?php
 /*
  * Plugin Name: Aspire Software: WPForms Actions for Pardot
- * Version: 1.3.0
+ * Version: 1.3.2
  * Description: Posts leads to Pardot endpoints via a URL field displayed on form configuration and includes GA Connector integration for tracking
  * Author: Nick Tomkin (@ntomkin)
  * Author URI: https://www.linkedin.com/in/nicktomkin/
  * License: GPL2
+ * GitHub Plugin URI: https://github.com/ntomkin/aspire-wpforms-action
+ * GitHub Branch: master
 */
 
 // Prevent direct file access
 if (!defined('ABSPATH')) {
     exit;
 }
+
+// Include the GitHub Updater
+if (!class_exists('AspirePluginUpdater')) {
+    require_once plugin_dir_path(__FILE__) . 'includes/updater.php';
+}
+
+// Setup the updater
+add_action('init', function() {
+    // Only initialize updater for admin
+    if (is_admin()) {
+        new AspirePluginUpdater(__FILE__, 'ntomkin', 'aspire-wpforms-action');
+    }
+});
 
 // GA Connector Integration
 function aspire_wpforms_ga_connector_scripts() {
@@ -717,5 +732,31 @@ function aspire_wpforms_ga_connector_hidden_fields($form_data, $form) {
     // Output the hidden fields
     echo $hidden_fields_html;
 }
+
+function aspire_check_for_plugin_update($checked_data) {
+    if (empty($checked_data->checked)) {
+        return $checked_data;
+    }
+    
+    // Get current version
+    $plugin_slug = plugin_basename(__FILE__);
+    if (empty($checked_data->checked[$plugin_slug])) {
+        return $checked_data;
+    }
+    
+    // Check your server for updates
+    $response = wp_remote_get('https://your-update-server.com/plugins/aspire-wpforms-action/info.json');
+    if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
+        return $checked_data;
+    }
+    
+    $update_data = json_decode(wp_remote_retrieve_body($response));
+    if (version_compare($checked_data->checked[$plugin_slug], $update_data->version, '<')) {
+        $checked_data->response[$plugin_slug] = $update_data;
+    }
+    
+    return $checked_data;
+}
+add_filter('pre_set_site_transient_update_plugins', 'aspire_check_for_plugin_update');
 
 ?>

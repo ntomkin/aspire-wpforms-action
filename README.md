@@ -24,6 +24,25 @@ This WordPress plugin extends WPForms to:
 3. Configure the GA Connector settings under Settings > GA Connector Settings
 4. For each form, configure the Pardot URL and field mappings in the form settings
 
+## Deployment & Updates
+
+This plugin supports automatic updates directly from GitHub. When a new version is released, WordPress will notify you of the update and allow you to install it with a single click through the Plugins dashboard.
+
+### For Plugin Administrators
+
+To release a new version:
+
+1. Make your changes to the codebase
+2. Update the version number in `wpforms-action.php`
+3. Create a new release in GitHub with a tag that matches the version number (e.g., `1.3.0`)
+4. Upload a ZIP file of the plugin as an asset to the GitHub release
+
+WordPress will automatically detect the new version and notify users of the update.
+
+### For Users
+
+Updates will appear in your WordPress dashboard just like any other plugin update. No additional configuration is needed.
+
 ## Configuration
 
 ### GA Connector Settings
@@ -54,6 +73,7 @@ Once configured, the plugin will:
 - Added GA Connector integration
 - Added admin settings page for GA Connector configuration
 - Added tracking script loading functionality
+- Added GitHub-based update functionality
 
 ### 1.2.0
 - Added field mapping UI to form settings
