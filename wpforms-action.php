@@ -1,7 +1,7 @@
 <?php
 /*
  * Plugin Name: Aspire Software: WPForms Actions for Pardot
- * Version: 1.3.1
+ * Version: 1.3.2
  * Description: Posts leads to Pardot endpoints via a URL field displayed on form configuration and includes GA Connector integration for tracking
  * Author: Nick Tomkin (@ntomkin)
  * Author URI: https://www.linkedin.com/in/nicktomkin/
@@ -223,6 +223,10 @@ function wpforms_action_url_setting_to_wpforms_content($instance) {
     echo '		<div id="mappings-list" class="wpforms-field-mappings"></div>';
     echo '		<button type="button" id="add-mapping" class="wpforms-btn wpforms-btn-md wpforms-btn-light-grey">' . __('Add Field Mapping', 'wpforms') . '</button>';
     echo '		<input type="hidden" name="mappings" id="mappings-data" value="">';
+    echo '      <div style="margin-top: 15px;">';
+    echo '          <button type="button" id="save-mappings-direct" class="wpforms-btn wpforms-btn-md wpforms-btn-orange" style="margin-right: 10px;">Save Mappings Now</button>';
+    echo '          <span id="mappings-save-status"></span>';
+    echo '      </div>';
     echo '	</div>';
 
     // Add JavaScript for field mappings
@@ -766,168 +770,63 @@ function aspire_wpforms_get_mappings() {
     ));
 }
 
-// Handle saving mappings
-add_action('wpforms_save_form_args', 'aspire_wpforms_save_mappings', 10, 2);
-function aspire_wpforms_save_mappings($form_data, $form) {
-    // Save mappings from the hidden field if it exists
-    if (isset($_POST['mappings'])) {
-        $mappings = json_decode(stripslashes($_POST['mappings']), true);
-        if (!$mappings) {
-            error_log('Aspire WPForms: Error decoding mappings JSON in save_form_args: ' . $_POST['mappings']);
-            return $form_data;
-        }
-
-        $forms_dir = plugin_dir_path(__FILE__) . 'forms';
-        if (!file_exists($forms_dir)) {
-            $dir_created = wp_mkdir_p($forms_dir);
-            if (!$dir_created) {
-                error_log('Aspire WPForms: Failed to create forms directory in save_form_args');
-                return $form_data;
-            }
-        }
-
-        $file_path = $forms_dir . '/' . $form_data['id'] . '.json';
-        $json_data = json_encode($mappings, JSON_PRETTY_PRINT);
-        $result = file_put_contents($file_path, $json_data);
-        
-        if ($result === false) {
-            error_log('Aspire WPForms: Failed to save mappings in save_form_args for form ID: ' . $form_data['id']);
-        } else {
-            error_log('Aspire WPForms: Successfully saved mappings in save_form_args for form ID: ' . $form_data['id']);
-        }
-    }
-
-    return $form_data;
-}
-
-// Add hidden fields to WPForms forms
-add_action('wpforms_frontend_output_before', 'aspire_wpforms_ga_connector_hidden_fields', 10, 2);
-function aspire_wpforms_ga_connector_hidden_fields($form_data, $form) {
-    $form_id = $form_data['id'];
-    $hidden_fields_html = '';
-    
-    // Path to the form JSON configuration file
-    $file_path = plugin_dir_path(__FILE__) . 'forms/' . $form_id . '.json';
-    
-    // Check if form config exists
-    if (file_exists($file_path)) {
-        $json_content = file_get_contents($file_path);
-        if ($json_content !== false) {
-            $form_fields = json_decode($json_content, true);
-            
-            if (is_array($form_fields)) {
-                // Go through fields in the form configuration
-                foreach ($form_fields as $field_name => $field_data) {
-                    // If the field name starts with 'gaconnector', add it as a hidden field
-                    if (strpos($field_name, 'gaconnector') === 0) {
-                        $cookie_name = isset($field_data[1]) ? $field_data[1] : $field_name . '__c';
-                        $hidden_fields_html .= "<input type='hidden' name='{$field_name}' value='' class='ga-cookie-pair' data-cookie-name='{$cookie_name}' data-gaconnector-tracked='true'>";
-                    }
-                }
-            }
-        }
-    }
-    
-    // Output the hidden fields
-    echo $hidden_fields_html;
-}
-
-function aspire_check_for_plugin_update($checked_data) {
-    if (empty($checked_data->checked)) {
-        return $checked_data;
-    }
-    
-    // Get current version
-    $plugin_slug = plugin_basename(__FILE__);
-    if (empty($checked_data->checked[$plugin_slug])) {
-        return $checked_data;
-    }
-    
-    // Check your server for updates
-    $response = wp_remote_get('https://github.com/ntomkin/aspire-wpforms-action/blob/master/wpforms-action.php');
-    if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
-        return $checked_data;
-    }
-    
-    $update_data = wp_remote_retrieve_body($response);
-    // Parse the contents of the plugin file to get the version number
-    $version = extract_version_from_plugin_file($update_data);
-    if (version_compare($checked_data->checked[$plugin_slug], $version, '<')) {
-        $checked_data->response[$plugin_slug] = $update_data;
-    }
-    
-    return $checked_data;
-}
-add_filter('pre_set_site_transient_update_plugins', 'aspire_check_for_plugin_update');
-
-function extract_version_from_plugin_file($plugin_data) {
-    // Use a regular expression to find the version number in the plugin data
-    if (preg_match('/Version: (.*)/', $plugin_data, $matches)) {
-        return trim($matches[1]);
-    }
-    return '1.0.0';
-}
-
 // Add AJAX handler for saving imported mappings
 add_action('wp_ajax_aspire_wpforms_save_imported_mappings', 'aspire_wpforms_save_imported_mappings');
 function aspire_wpforms_save_imported_mappings() {
     check_ajax_referer('aspire_wpforms_save_mappings', 'nonce');
-
-    // Try to write a test file first to check permissions
-    $test_file = plugin_dir_path(__FILE__) . 'test-write.txt';
-    $test_result = file_put_contents($test_file, 'Test write: ' . date('Y-m-d H:i:s'));
     
-    if ($test_result === false) {
-        error_log('Aspire WPForms: Cannot write to plugin directory - permission denied');
-        wp_send_json_error(array('message' => 'Permission denied - cannot write to plugin directory'));
-        return;
-    }
-
     $form_id = intval($_POST['form_id']);
     if (!$form_id) {
         error_log('Aspire WPForms: Invalid form ID');
         wp_send_json_error(array('message' => 'Invalid form ID'));
         return;
     }
-
-    $mappings = json_decode(stripslashes($_POST['mappings']), true);
-    if (!$mappings) {
-        error_log('Aspire WPForms: Invalid mapping data: ' . $_POST['mappings']);
-        wp_send_json_error(array('message' => 'Invalid mapping data'));
+    
+    // Get the raw mappings JSON
+    $raw_mappings = isset($_POST['mappings']) ? stripslashes($_POST['mappings']) : '';
+    if (empty($raw_mappings)) {
+        error_log('Aspire WPForms: Empty mapping data');
+        wp_send_json_error(array('message' => 'Empty mapping data'));
         return;
     }
-
-    // Create forms directory if it doesn't exist
+    
+    // Validate JSON before saving
+    $mappings_array = json_decode($raw_mappings, true);
+    if (!is_array($mappings_array)) {
+        error_log('Aspire WPForms: Invalid JSON in mappings: ' . $raw_mappings);
+        wp_send_json_error(array('message' => 'Invalid JSON in mappings'));
+        return;
+    }
+    
+    // Create a timestamp file first to test write permissions
+    $timestamp_file = plugin_dir_path(__FILE__) . 'timestamp.txt';
+    if (file_put_contents($timestamp_file, date('Y-m-d H:i:s')) === false) {
+        error_log('Aspire WPForms: Cannot write to plugin directory');
+        wp_send_json_error(array('message' => 'Cannot write to plugin directory'));
+        return;
+    }
+    
+    // Ensure forms directory exists
     $forms_dir = plugin_dir_path(__FILE__) . 'forms';
     if (!file_exists($forms_dir)) {
-        error_log('Aspire WPForms: Creating forms directory at ' . $forms_dir);
-        $dir_created = wp_mkdir_p($forms_dir);
-        
-        if (!$dir_created) {
+        if (!mkdir($forms_dir, 0755, true)) {
             error_log('Aspire WPForms: Failed to create forms directory');
             wp_send_json_error(array('message' => 'Failed to create forms directory'));
             return;
         }
     }
-
-    // Save mappings to JSON file
+    
+    // Define target file path
     $file_path = $forms_dir . '/' . $form_id . '.json';
-    $json_data = json_encode($mappings, JSON_PRETTY_PRINT);
     
-    // Log the data we're trying to save
-    error_log('Aspire WPForms: Attempting to save ' . strlen($json_data) . ' bytes to ' . $file_path);
-    
-    // Try direct file writing with error checking
-    $result = file_put_contents($file_path, $json_data);
+    // Direct file writing with error handling
+    $result = file_put_contents($file_path, $raw_mappings);
     
     if ($result !== false) {
-        error_log('Aspire WPForms: Successfully saved mappings to ' . $file_path . ' (' . $result . ' bytes written)');
-        // Also create a timestamp file to verify we can write
-        file_put_contents($forms_dir . '/last-save-' . $form_id . '.txt', 'Last saved: ' . date('Y-m-d H:i:s'));
+        error_log('Aspire WPForms: Successfully saved ' . $result . ' bytes to ' . $file_path);
         wp_send_json_success(array(
             'message' => 'Mappings saved successfully',
             'bytes' => $result,
-            'form_id' => $form_id,
             'path' => $file_path
         ));
     } else {
@@ -1001,9 +900,141 @@ function aspire_wpforms_admin_footer_script() {
                 nonce: '<?php echo wp_create_nonce("aspire_wpforms_save_mappings"); ?>'
             });
         });
+        
+        // Direct save button for mappings
+        $(document).on('click', '#save-mappings-direct', function() {
+            $('#mappings-save-status').html('<span style="color:#999;">Saving...</span>');
+            
+            // Define local version of updateMappingsData
+            function updateMappingsData() {
+                var data = {};
+                $(".wpforms-field-mapping-row").each(function() {
+                    var relation = $(this).find(".relation").val();
+                    var type = $(this).find(".data").val();
+                    var value = $(this).find(".value").val();
+                    if (relation && type && value) {
+                        data[relation] = [type, value];
+                    }
+                });
+                $("#mappings-data").val(JSON.stringify(data));
+            }
+            
+            // Call the function to update mappings
+            updateMappingsData();
+            
+            var mappingsData = $('#mappings-data').val();
+            if (!mappingsData) {
+                $('#mappings-save-status').html('<span style="color:red;">No mapping data to save</span>');
+                return;
+            }
+            
+            var formId = getFormIdFromUrl();
+            if (!formId) {
+                $('#mappings-save-status').html('<span style="color:red;">Cannot determine form ID</span>');
+                return;
+            }
+            
+            console.log('Direct save button clicked - saving mappings for form ID: ' + formId);
+            
+            // Save via AJAX with status update
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'aspire_wpforms_save_imported_mappings',
+                    form_id: formId,
+                    mappings: mappingsData,
+                    nonce: '<?php echo wp_create_nonce("aspire_wpforms_save_mappings"); ?>'
+                },
+                success: function(response) {
+                    console.log('Direct save response:', response);
+                    if (response.success) {
+                        $('#mappings-save-status').html('<span style="color:green;">Saved successfully!</span>');
+                        setTimeout(function() {
+                            $('#mappings-save-status').html('');
+                        }, 3000);
+                    } else {
+                        $('#mappings-save-status').html('<span style="color:red;">Error: ' + 
+                            (response.data && response.data.message ? response.data.message : 'Unknown error') + '</span>');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX error when saving mappings:', status, error);
+                    $('#mappings-save-status').html('<span style="color:red;">Error saving: ' + status + '</span>');
+                }
+            });
+        });
     });
     </script>
     <?php
+}
+
+function aspire_check_for_plugin_update($checked_data) {
+    if (empty($checked_data->checked)) {
+        return $checked_data;
+    }
+    
+    // Get current version
+    $plugin_slug = plugin_basename(__FILE__);
+    if (empty($checked_data->checked[$plugin_slug])) {
+        return $checked_data;
+    }
+    
+    // Check your server for updates
+    $response = wp_remote_get('https://github.com/ntomkin/aspire-wpforms-action/blob/master/wpforms-action.php');
+    if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
+        return $checked_data;
+    }
+    
+    $update_data = wp_remote_retrieve_body($response);
+    // Parse the contents of the plugin file to get the version number
+    $version = extract_version_from_plugin_file($update_data);
+    if (version_compare($checked_data->checked[$plugin_slug], $version, '<')) {
+        $checked_data->response[$plugin_slug] = $update_data;
+    }
+    
+    return $checked_data;
+}
+add_filter('pre_set_site_transient_update_plugins', 'aspire_check_for_plugin_update');
+
+function extract_version_from_plugin_file($plugin_data) {
+    // Use a regular expression to find the version number in the plugin data
+    if (preg_match('/Version: (.*)/', $plugin_data, $matches)) {
+        return trim($matches[1]);
+    }
+    return '1.0.0';
+}
+
+// Add hidden fields to WPForms forms
+add_action('wpforms_frontend_output_before', 'aspire_wpforms_ga_connector_hidden_fields', 10, 2);
+function aspire_wpforms_ga_connector_hidden_fields($form_data, $form) {
+    $form_id = $form_data['id'];
+    $hidden_fields_html = '';
+    
+    // Path to the form JSON configuration file
+    $file_path = plugin_dir_path(__FILE__) . 'forms/' . $form_id . '.json';
+    
+    // Check if form config exists
+    if (file_exists($file_path)) {
+        $json_content = file_get_contents($file_path);
+        if ($json_content !== false) {
+            $form_fields = json_decode($json_content, true);
+            
+            if (is_array($form_fields)) {
+                // Go through fields in the form configuration
+                foreach ($form_fields as $field_name => $field_data) {
+                    // If the field name starts with 'gaconnector', add it as a hidden field
+                    if (strpos($field_name, 'gaconnector') === 0) {
+                        $cookie_name = isset($field_data[1]) ? $field_data[1] : $field_name . '__c';
+                        $hidden_fields_html .= "<input type='hidden' name='{$field_name}' value='' class='ga-cookie-pair' data-cookie-name='{$cookie_name}' data-gaconnector-tracked='true'>";
+                    }
+                }
+            }
+        }
+    }
+    
+    // Output the hidden fields
+    echo $hidden_fields_html;
 }
 
 ?>

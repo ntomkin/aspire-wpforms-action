@@ -1,0 +1,33 @@
+name: Build Release Package
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build plugin ZIP
+        run: |
+          mkdir -p dist
+          PLUGIN_SLUG="aspire-wpforms-action"
+          TMP_DIR="/tmp/plugin-build-$PLUGIN_SLUG"
+          mkdir -p "$TMP_DIR/$PLUGIN_SLUG"
+          
+          # Copy all plugin files excluding development files
+          rsync -r --exclude=".git" --exclude="dist" --exclude="bin" --exclude=".github" --exclude="node_modules" --exclude=".DS_Store" . "$TMP_DIR/$PLUGIN_SLUG/"
+          
+          # Create ZIP file
+          cd "$TMP_DIR" && zip -r "$GITHUB_WORKSPACE/dist/$PLUGIN_SLUG.zip" "$PLUGIN_SLUG" -x "*.DS_Store" -x "*__MACOSX*" -x "*.git*"
+
+      - name: Upload ZIP to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/aspire-wpforms-action.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

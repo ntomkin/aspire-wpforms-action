@@ -70,6 +70,9 @@ class AspirePluginUpdater {
             $request_args['headers'] = array('Authorization' => 'token ' . $this->authorize_token);
         }
 
+        // Set user agent
+        $request_args['user-agent'] = 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url');
+
         // Get the response
         $response = wp_remote_get($request_uri, $request_args);
 
@@ -91,13 +94,28 @@ class AspirePluginUpdater {
             return false;
         }
 
-        // Check if there are assets
-        if (empty($response->assets) || empty($response->assets[0])) {
-            return false;
-        }
-
         // Format the version number
         $response->tag_name = ltrim($response->tag_name, 'v');
+
+        // Find the ZIP file URL in the assets
+        $download_url = null;
+        if (!empty($response->assets) && is_array($response->assets)) {
+            foreach ($response->assets as $asset) {
+                if (isset($asset->browser_download_url) && 
+                    strpos($asset->browser_download_url, '.zip') !== false) {
+                    $download_url = $asset->browser_download_url;
+                    break;
+                }
+            }
+        }
+
+        // If no ZIP file in assets, use the source code ZIP
+        if (empty($download_url) && isset($response->zipball_url)) {
+            $download_url = $response->zipball_url;
+        }
+
+        // Store the download URL
+        $response->package = $download_url;
 
         $this->github_response = $response;
         return $response;
@@ -117,24 +135,24 @@ class AspirePluginUpdater {
         }
 
         // Get plugin & GitHub release information
-        $version = $this->get_repository_info();
+        $release_info = $this->get_repository_info();
         
         // If there is no new version, return the transient
-        if (false === $version || version_compare($this->plugin['Version'], $version->tag_name, '>=')) {
+        if (false === $release_info || version_compare($this->plugin['Version'], $release_info->tag_name, '>=')) {
             return $transient;
         }
 
         // Populate update object
-        $update = new stdClass();
-        $update->slug = $this->basename;
-        $update->plugin = $this->basename;
-        $update->new_version = $version->tag_name;
-        $update->url = $this->plugin['PluginURI'] ?? '';
-        $update->package = $version->assets[0]->browser_download_url;
-        $update->tested = get_bloginfo('version');
+        $obj = new stdClass();
+        $obj->slug = $this->basename;
+        $obj->plugin = $this->basename;
+        $obj->new_version = $release_info->tag_name;
+        $obj->url = $this->plugin['PluginURI'] ?? sprintf('https://github.com/%s/%s', $this->username, $this->repository);
+        $obj->package = $release_info->package;
+        $obj->tested = get_bloginfo('version');
         
         // Add to transient
-        $transient->response[$this->basename] = $update;
+        $transient->response[$this->basename] = $obj;
 
         return $transient;
     }
@@ -171,16 +189,16 @@ class AspirePluginUpdater {
         $plugin_info->slug = $this->basename;
         $plugin_info->version = $release->tag_name;
         $plugin_info->author = $this->plugin['AuthorName'] ?? '';
-        $plugin_info->homepage = $this->plugin['PluginURI'] ?? '';
+        $plugin_info->homepage = $this->plugin['PluginURI'] ?? sprintf('https://github.com/%s/%s', $this->username, $this->repository);
         $plugin_info->requires = '5.0';
         $plugin_info->tested = get_bloginfo('version');
         $plugin_info->downloaded = 0;
-        $plugin_info->last_updated = $release->published_at;
+        $plugin_info->last_updated = isset($release->published_at) ? $release->published_at : date('Y-m-d');
         $plugin_info->sections = array(
             'description' => $release->body ?: $this->plugin['Description'],
-            'changelog' => nl2br($release->body)
+            'changelog' => nl2br($release->body ?? '')
         );
-        $plugin_info->download_link = $release->assets[0]->browser_download_url;
+        $plugin_info->download_link = $release->package;
 
         return $plugin_info;
     }
