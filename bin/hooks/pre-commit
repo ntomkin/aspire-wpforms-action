@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Get plugin directory
+PLUGIN_DIR=$(git rev-parse --show-toplevel)
+BUILD_SCRIPT="$PLUGIN_DIR/bin/build-release.sh"
+
+# Check if version was changed
+VERSION_FILE="$PLUGIN_DIR/wpforms-action.php"
+if git diff --cached --name-only | grep -q "wpforms-action.php"; then
+    # Version might have changed, build release
+    echo "Plugin version file changed, building release package..."
+    bash "$BUILD_SCRIPT"
+    
+    # Add the generated ZIP to the commit if it exists
+    DIST_DIR="$PLUGIN_DIR/dist"
+    ZIP_FILE="$DIST_DIR/aspire-wpforms-action.zip"
+    if [ -f "$ZIP_FILE" ]; then
+        echo "Adding ZIP file to the commit..."
+        git add "$ZIP_FILE"
+    fi
+else
+    echo "No version changes detected, skipping release build"
+fi
+
+exit 0
