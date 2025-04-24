@@ -1,7 +1,7 @@
 <?php
 /*
  * Plugin Name: Aspire Software: WPForms Actions for Pardot
- * Version: 1.3.2
+ * Version: 1.3.0
  * Description: Posts leads to Pardot endpoints via a URL field displayed on form configuration and includes GA Connector integration for tracking
  * Author: Nick Tomkin (@ntomkin)
  * Author URI: https://www.linkedin.com/in/nicktomkin/
@@ -374,36 +374,7 @@ function wpforms_action_url_setting_to_wpforms_content($instance) {
             updateMappingsData();
             updateCopyPasteFormat();
         });
-    });
-    </script>';
-
-    // Add copy/paste format area
-    echo '<div class="wpforms-panel-content-section-field" style="margin-top: 20px;">
-             <label for="copy-paste-mappings" class="wpforms-field-label">' . __('Copy/Paste Format', 'wpforms') . '</label>
-             <p class="wpforms-field-description">' . __('Copy this formatted version for your reference', 'wpforms') . '</p>
-             <textarea id="copy-paste-mappings" class="wpforms-field-mapping-copyable" style="width: 100%; min-height: 150px; font-family: monospace;" readonly></textarea>
-           </div>';
-           
-    // Add import/export functionality
-    echo '<div class="wpforms-panel-content-section-field" style="margin-top: 20px;">
-            <div class="wpforms-panel-content-section-title">' . __('Import/Export Configuration', 'wpforms') . '</div>
-            <p class="wpforms-field-description">' . __('Export your current configuration as a JSON file or import a configuration from another form.', 'wpforms') . '</p>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button type="button" id="export-mappings" class="wpforms-btn wpforms-btn-md wpforms-btn-light-grey">
-                    ' . __('Export Configuration', 'wpforms') . '
-                </button>
-                <div>
-                    <input type="file" id="import-file" accept=".json" style="display: none;">
-                    <button type="button" id="import-mappings" class="wpforms-btn wpforms-btn-md wpforms-btn-light-grey">
-                        ' . __('Import Configuration', 'wpforms') . '
-                    </button>
-                </div>
-            </div>
-          </div>';
-
-    // Add JavaScript for import/export (include in the same script tag as above)
-    echo '<script type="text/javascript">
-    jQuery(document).ready(function($) {
+        
         // Export functionality
         $("#export-mappings").on("click", function() {
             var mappingsData = $("#mappings-data").val();
@@ -463,6 +434,30 @@ function wpforms_action_url_setting_to_wpforms_content($instance) {
         });
     });
     </script>';
+
+    // Add copy/paste format area
+    echo '<div class="wpforms-panel-content-section-field" style="margin-top: 20px;">
+             <label for="copy-paste-mappings" class="wpforms-field-label">' . __('Copy/Paste Format', 'wpforms') . '</label>
+             <p class="wpforms-field-description">' . __('Copy this formatted version for your reference', 'wpforms') . '</p>
+             <textarea id="copy-paste-mappings" class="wpforms-field-mapping-copyable" style="width: 100%; min-height: 150px; font-family: monospace;" readonly></textarea>
+           </div>';
+           
+    // Add import/export functionality
+    echo '<div class="wpforms-panel-content-section-field" style="margin-top: 20px;">
+            <div class="wpforms-panel-content-section-title">' . __('Import/Export Configuration', 'wpforms') . '</div>
+            <p class="wpforms-field-description">' . __('Export your current configuration as a JSON file or import a configuration from another form.', 'wpforms') . '</p>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button type="button" id="export-mappings" class="wpforms-btn wpforms-btn-md wpforms-btn-light-grey">
+                    ' . __('Export Configuration', 'wpforms') . '
+                </button>
+                <div>
+                    <input type="file" id="import-file" accept=".json" style="display: none;">
+                    <button type="button" id="import-mappings" class="wpforms-btn wpforms-btn-md wpforms-btn-light-grey">
+                        ' . __('Import Configuration', 'wpforms') . '
+                    </button>
+                </div>
+            </div>
+          </div>';
 
     echo '<style>
     .wpforms-field-mappings {
