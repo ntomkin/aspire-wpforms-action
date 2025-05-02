@@ -264,6 +264,39 @@ function wpforms_action_url_setting_to_wpforms_content($instance) {
             renderMappings();
         });
 
+        // Handle input changes for relation fields
+        $(document).on("input change", ".wpforms-field-mapping-row .relation", function() {
+            var row = $(this).closest(".wpforms-field-mapping-row");
+            var index = row.data("index");
+            mappings[index].relation = $(this).val();
+            updateMappingsData();
+            updateCopyPasteFormat();
+        });
+
+        // Handle input changes for value fields
+        $(document).on("input change", ".wpforms-field-mapping-row .value", function() {
+            var row = $(this).closest(".wpforms-field-mapping-row");
+            var index = row.data("index");
+            mappings[index].value = $(this).val();
+            updateMappingsData();
+            updateCopyPasteFormat();
+        });
+
+        // Handle data type change
+        $(document).on("change", ".data", function() {
+            var row = $(this).closest(".wpforms-field-mapping-row");
+            var index = row.data("index");
+            var type = $(this).val();
+            var currentValue = mappings[index].value;
+            mappings[index].data = type;
+            // Only reset value if switching to/from field type
+            if ((type === "field" && mappings[index].value && !formFields[mappings[index].value]) || 
+                (mappings[index].data === "field" && type !== "field")) {
+                mappings[index].value = "";
+            }
+            renderMappings();
+        });
+
         // Render mappings list
         function renderMappings() {
             var html = "";
@@ -315,16 +348,6 @@ function wpforms_action_url_setting_to_wpforms_content($instance) {
             updateMappingsData();
             updateCopyPasteFormat();
         }
-
-        // Handle data type change
-        $(document).on("change", ".data", function() {
-            var row = $(this).closest(".wpforms-field-mapping-row");
-            var index = row.data("index");
-            var type = $(this).val();
-            mappings[index].data = type;
-            mappings[index].value = ""; // Reset value when changing type
-            renderMappings();
-        });
 
         // Remove mapping
         $(document).on("click", ".remove-mapping", function() {

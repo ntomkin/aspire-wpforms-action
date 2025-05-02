@@ -64,6 +64,9 @@ class AspirePluginUpdater {
         // Request GitHub API
         $request_uri = sprintf('https://api.github.com/repos/%s/%s/releases/latest', $this->username, $this->repository);
         
+        // Log the request URI
+        error_log('GitHub Updater: Requesting ' . $request_uri);
+        
         // Include token if provided
         $request_args = array();
         if ($this->authorize_token) {
@@ -77,41 +80,62 @@ class AspirePluginUpdater {
         $response = wp_remote_get($request_uri, $request_args);
 
         // Check if response is valid
-        if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
+        if (is_wp_error($response)) {
+            error_log('GitHub Updater: API request error - ' . $response->get_error_message());
+            return false;
+        }
+        
+        if (200 !== wp_remote_retrieve_response_code($response)) {
+            error_log('GitHub Updater: API request failed with code ' . wp_remote_retrieve_response_code($response));
             return false;
         }
 
         // Parse the response body
-        $response = json_decode(wp_remote_retrieve_body($response));
+        $body = wp_remote_retrieve_body($response);
+        error_log('GitHub Updater: API response received - ' . substr($body, 0, 200) . '...');
+        
+        $response = json_decode($body);
         
         // Check for valid response
         if (empty($response) || !is_object($response)) {
+            error_log('GitHub Updater: Invalid JSON response');
             return false;
         }
 
         // Check if a release was found
         if (empty($response->tag_name)) {
+            error_log('GitHub Updater: No tag name found in release');
             return false;
         }
 
         // Format the version number
         $response->tag_name = ltrim($response->tag_name, 'v');
+        error_log('GitHub Updater: Found release version ' . $response->tag_name);
 
         // Find the ZIP file URL in the assets
         $download_url = null;
         if (!empty($response->assets) && is_array($response->assets)) {
+            error_log('GitHub Updater: Found ' . count($response->assets) . ' assets');
             foreach ($response->assets as $asset) {
+                error_log('GitHub Updater: Checking asset: ' . ($asset->name ?? 'unnamed'));
                 if (isset($asset->browser_download_url) && 
-                    strpos($asset->browser_download_url, '.zip') !== false) {
+                    isset($asset->name) &&
+                    $asset->name === $this->repository . '.zip') {
                     $download_url = $asset->browser_download_url;
+                    error_log('GitHub Updater: Found matching ZIP asset: ' . $download_url);
                     break;
                 }
             }
+        } else {
+            error_log('GitHub Updater: No assets found in release');
         }
 
         // If no ZIP file in assets, use the source code ZIP
         if (empty($download_url) && isset($response->zipball_url)) {
             $download_url = $response->zipball_url;
+            error_log('GitHub Updater: Using source ZIP: ' . $download_url);
+        } else if (empty($download_url)) {
+            error_log('GitHub Updater: No download URL found!');
         }
 
         // Store the download URL
