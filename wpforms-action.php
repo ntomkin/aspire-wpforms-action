@@ -1,7 +1,7 @@
 <?php
 /*
  * Plugin Name: Aspire Software: WPForms Actions for Pardot
- * Version: 1.4
+ * Version: 1.3.6
  * Description: Posts leads to Pardot endpoints via a URL field displayed on form configuration and includes GA Connector integration for tracking
  * Author: Nick Tomkin (@ntomkin)
  * Author URI: https://www.linkedin.com/in/nicktomkin/
@@ -862,8 +862,231 @@ function wpforms_action_post_to_script($fields, $entry, $form_data, $entry_id) {
             $value = $field_data[1];
 
             if($type === 'field') {
+                // Check if this is a checkbox option (format: "field_id:checkbox:choice_label")
+                if (strpos($value, ':checkbox:') !== false) {
+                    list($field_id, $checkbox_part, $choice_label) = explode(':', $value, 3);
+                    $field_id = intval($field_id);
+                    
+                    if (isset($fields[$field_id])) {
+                        $is_checked = false;
+                        
+                        // Get the checkbox field from form data to check choice structure
+                        $checkbox_field_config = null;
+                        if (isset($form_data['fields'][$field_id]) && ($form_data['fields'][$field_id]['type'] === 'checkbox' || $form_data['fields'][$field_id]['type'] === 'checkboxes')) {
+                            $checkbox_field_config = $form_data['fields'][$field_id];
+                        }
+                        
+                        // Get the checkbox field value - check multiple possible locations
+                        $checkbox_value = null;
+                        // Check all possible locations where WPForms might store checkbox values
+                        if (isset($fields[$field_id]['value_raw'])) {
+                            $checkbox_value = $fields[$field_id]['value_raw'];
+                        } else if (isset($fields[$field_id]['value'])) {
+                            $checkbox_value = $fields[$field_id]['value'];
+                        } else if (isset($fields[$field_id])) {
+                            // If the field itself is an array, use it directly
+                            $checkbox_value = $fields[$field_id];
+                        }
+                        
+                        // Fallback: check raw POST data if value is still null
+                        if ($checkbox_value === null && isset($_POST['wpforms']['fields'][$field_id])) {
+                            $checkbox_value = $_POST['wpforms']['fields'][$field_id];
+                        }
+                        
+                        // Normalize the choice label for comparison (decode HTML entities, trim)
+                        $choice_label_normalized = trim(html_entity_decode($choice_label, ENT_QUOTES, 'UTF-8'));
+                        
+                        // If checkbox_value is null or empty, the checkbox is definitely not checked
+                        if ($checkbox_value === null || (is_array($checkbox_value) && empty($checkbox_value)) || (is_string($checkbox_value) && trim($checkbox_value) === '')) {
+                            $is_checked = false;
+                        } else {
+                            // Only proceed with matching if we have a value
+                        
+                        // Build a list of all possible values to match against (label, value, and choice index)
+                        $choice_values_to_match = array($choice_label_normalized);
+                        $choice_index_to_match = null;
+                        
+                        if ($checkbox_field_config && !empty($checkbox_field_config['choices'])) {
+                            foreach ($checkbox_field_config['choices'] as $choice_index => $choice) {
+                                $choice_label_check = !empty($choice['label']) ? trim(html_entity_decode($choice['label'], ENT_QUOTES, 'UTF-8')) : '';
+                                if (strcasecmp($choice_label_check, $choice_label_normalized) === 0) {
+                                    // Found matching choice
+                                    $choice_index_to_match = $choice_index;
+                                    
+                                    // Add the choice value if set
+                                    if (!empty($choice['value'])) {
+                                        $choice_value = trim(html_entity_decode($choice['value'], ENT_QUOTES, 'UTF-8'));
+                                        if (!in_array($choice_value, $choice_values_to_match)) {
+                                            $choice_values_to_match[] = $choice_value;
+                                        }
+                                    }
+                                    
+                                    // Also add the choice ID if it exists (WPForms sometimes uses numeric IDs)
+                                    if (isset($choice['id'])) {
+                                        $choice_id = is_numeric($choice['id']) ? (string)$choice['id'] : trim(html_entity_decode($choice['id'], ENT_QUOTES, 'UTF-8'));
+                                        if (!in_array($choice_id, $choice_values_to_match)) {
+                                            $choice_values_to_match[] = $choice_id;
+                                        }
+                                    }
+                                    
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Handle different value formats
+                        if (is_array($checkbox_value)) {
+                            // Array of selected values - could be labels, values, or indices
+                            // WPForms might store as indexed array or associative array
+                            // First, check if array is empty (no checkboxes selected)
+                            if (empty($checkbox_value)) {
+                                $is_checked = false;
+                            } else {
+                                // Try multiple matching strategies
+                                foreach ($checkbox_value as $key => $selected) {
+                                    // Strategy 1: Handle associative arrays where key might be the choice ID/index
+                                    if (is_numeric($key) && $choice_index_to_match !== null && intval($key) === $choice_index_to_match) {
+                                        $is_checked = true;
+                                        break;
+                                    }
+                                    
+                                    // Strategy 2: Handle both string and numeric values
+                                    $selected_normalized = '';
+                                    if (is_array($selected)) {
+                                        // If selected is itself an array, try to get a string representation
+                                        $selected_normalized = implode(' ', array_map(function($v) {
+                                            return is_numeric($v) ? (string)$v : trim(html_entity_decode($v, ENT_QUOTES, 'UTF-8'));
+                                        }, $selected));
+                                    } else {
+                                        $selected_normalized = is_numeric($selected) ? (string)$selected : trim(html_entity_decode($selected, ENT_QUOTES, 'UTF-8'));
+                                    }
+                                    
+                                    // Strategy 3: Check if this matches any of our possible values (exact or case-insensitive)
+                                    foreach ($choice_values_to_match as $match_value) {
+                                        if ($selected_normalized === $match_value || 
+                                            strcasecmp($selected_normalized, $match_value) === 0 ||
+                                            stripos($selected_normalized, $match_value) !== false ||
+                                            stripos($match_value, $selected_normalized) !== false) {
+                                            $is_checked = true;
+                                            break 2; // Break out of both loops
+                                        }
+                                    }
+                                    
+                                    // Strategy 4: Also check if this is the choice index (WPForms might store indices)
+                                    if ($choice_index_to_match !== null && is_numeric($selected) && intval($selected) === $choice_index_to_match) {
+                                        $is_checked = true;
+                                        break;
+                                    }
+                                    
+                                    // Strategy 5: Check if the key itself matches (for associative arrays)
+                                    $key_normalized = is_numeric($key) ? (string)$key : trim(html_entity_decode($key, ENT_QUOTES, 'UTF-8'));
+                                    foreach ($choice_values_to_match as $match_value) {
+                                        if ($key_normalized === $match_value || 
+                                            strcasecmp($key_normalized, $match_value) === 0 ||
+                                            stripos($key_normalized, $match_value) !== false ||
+                                            stripos($match_value, $key_normalized) !== false) {
+                                            $is_checked = true;
+                                            break 2; // Break out of both loops
+                                        }
+                                    }
+                                    
+                                    // Strategy 6: WPForms might store checkbox values where the key is the choice label/value
+                                    // and the presence of the key indicates it's checked (value might be empty or the same)
+                                    if ($checkbox_field_config && !empty($checkbox_field_config['choices'])) {
+                                        foreach ($checkbox_field_config['choices'] as $config_choice_index => $config_choice) {
+                                            $config_label = !empty($config_choice['label']) ? trim(html_entity_decode($config_choice['label'], ENT_QUOTES, 'UTF-8')) : '';
+                                            $config_value = !empty($config_choice['value']) ? trim(html_entity_decode($config_choice['value'], ENT_QUOTES, 'UTF-8')) : $config_label;
+                                            
+                                            // Check if key matches choice label or value (with flexible matching)
+                                            if (($key_normalized === $config_label || strcasecmp($key_normalized, $config_label) === 0 ||
+                                                 stripos($key_normalized, $config_label) !== false || stripos($config_label, $key_normalized) !== false) ||
+                                                ($key_normalized === $config_value || strcasecmp($key_normalized, $config_value) === 0 ||
+                                                 stripos($key_normalized, $config_value) !== false || stripos($config_value, $key_normalized) !== false)) {
+                                                // If this matches our target choice, mark as checked
+                                                if (strcasecmp($config_label, $choice_label_normalized) === 0 ||
+                                                    stripos($config_label, $choice_label_normalized) !== false ||
+                                                    stripos($choice_label_normalized, $config_label) !== false) {
+                                                    $is_checked = true;
+                                                    break 2; // Break out of both loops
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Strategy 7: If still not checked, try using in_array with case-insensitive comparison
+                                if (!$is_checked) {
+                                    foreach ($choice_values_to_match as $match_value) {
+                                        // Check if match_value exists in the array (case-insensitive)
+                                        foreach ($checkbox_value as $check_val) {
+                                            $check_val_str = is_array($check_val) ? implode(' ', $check_val) : (string)$check_val;
+                                            if (stripos($check_val_str, $match_value) !== false || stripos($match_value, $check_val_str) !== false) {
+                                                $is_checked = true;
+                                                break 2;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (is_string($checkbox_value) && !empty($checkbox_value)) {
+                            // String format - could be comma-separated or single value
+                            $selected_values = array_map('trim', explode(',', $checkbox_value));
+                            foreach ($selected_values as $selected) {
+                                $selected_normalized = trim(html_entity_decode($selected, ENT_QUOTES, 'UTF-8'));
+                                
+                                // Check if this matches any of our possible values
+                                foreach ($choice_values_to_match as $match_value) {
+                                    if ($selected_normalized === $match_value || 
+                                        strcasecmp($selected_normalized, $match_value) === 0) {
+                                        $is_checked = true;
+                                        break 2; // Break out of both loops
+                                    }
+                                }
+                            }
+                        } else if (is_numeric($checkbox_value) && $choice_index_to_match !== null) {
+                            // Handle case where checkbox_value is a numeric index
+                            if (intval($checkbox_value) === $choice_index_to_match) {
+                                $is_checked = true;
+                            }
+                        }
+                        
+                        // Additional check: if checkbox_value exists but is_checked is still false,
+                        // and we have a matching choice, check if WPForms stores it differently
+                        if (!$is_checked && $checkbox_value !== null && $checkbox_field_config) {
+                            // Try checking if the field has a 'choices' structure that matches
+                            if (isset($fields[$field_id]['choices']) && is_array($fields[$field_id]['choices'])) {
+                                foreach ($fields[$field_id]['choices'] as $choice_key => $choice_val) {
+                                    if (is_array($choice_val) && isset($choice_val['label'])) {
+                                        $check_label = trim(html_entity_decode($choice_val['label'], ENT_QUOTES, 'UTF-8'));
+                                        if (strcasecmp($check_label, $choice_label_normalized) === 0) {
+                                            // Check if this choice is selected
+                                            if (isset($choice_val['selected']) && $choice_val['selected']) {
+                                                $is_checked = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Final fallback: if checkbox_value is not empty and we have a matching choice,
+                            // check if the choice label appears anywhere in the checkbox value (very flexible matching)
+                            if (!$is_checked && !empty($checkbox_value)) {
+                                $checkbox_value_str = is_array($checkbox_value) ? json_encode($checkbox_value) : (string)$checkbox_value;
+                                if (stripos($checkbox_value_str, $choice_label_normalized) !== false) {
+                                    $is_checked = true;
+                                }
+                            }
+                        }
+                        } // Close the else block from earlier
+                        
+                        $updated_form_data[$field] = $is_checked ? '1' : '0';
+                    } else {
+                        $updated_form_data[$field] = '0';
+                    }
+                }
                 // Check if this is a Full Name sub-field (format: "field_id:first" or "field_id:last")
-                if (strpos($value, ':') !== false) {
+                else if (strpos($value, ':') !== false) {
                     list($field_id, $sub_field) = explode(':', $value, 2);
                     if (isset($fields[$field_id]) && in_array($sub_field, ['first', 'last'])) {
                         // Access the sub-field from the Full Name field
@@ -877,7 +1100,26 @@ function wpforms_action_post_to_script($fields, $entry, $form_data, $entry_id) {
                 }
             } else if($type === 'post') {
                 // Get the value from the hidden field that was submitted
-                $updated_form_data[$field] = isset($_POST[$field]) ? filter($_POST[$field]) : '';
+                // Check multiple possible locations for POST data
+                $post_value = '';
+                if (isset($_POST[$field])) {
+                    $post_value = $_POST[$field];
+                } else if (isset($_REQUEST[$field])) {
+                    $post_value = $_REQUEST[$field];
+                } else if (isset($entry[$field])) {
+                    $post_value = $entry[$field];
+                } else if (isset($fields[$field])) {
+                    // Sometimes POST data might be in the fields array
+                    $post_value = is_array($fields[$field]) ? (isset($fields[$field]['value']) ? $fields[$field]['value'] : '') : $fields[$field];
+                }
+                
+                // If POST value is empty, use the configured value as fallback
+                // (since hidden fields are pre-populated with this value)
+                if (empty($post_value) && !empty($value)) {
+                    $post_value = $value;
+                }
+                
+                $updated_form_data[$field] = !empty($post_value) ? filter($post_value) : '';
             } else if($type === 'replace') {
                 $refUrl = $_SERVER['HTTP_REFERER'];
 
@@ -1008,6 +1250,20 @@ function aspire_wpforms_get_mappings() {
                 if (isset($field['type']) && $field['type'] === 'name') {
                     $fields[$field['id'] . ':first'] = $field['label'] . ' - First Name';
                     $fields[$field['id'] . ':last'] = $field['label'] . ' - Last Name';
+                }
+                
+                // If this is a Checkbox or Checkboxes field, expose each checkbox option as a separate selectable option
+                if (isset($field['type']) && ($field['type'] === 'checkbox' || $field['type'] === 'checkboxes') && !empty($field['choices'])) {
+                    foreach ($field['choices'] as $choice_index => $choice) {
+                        // Use the choice label, or value if available, or fallback to index
+                        $choice_label = !empty($choice['label']) ? $choice['label'] : (!empty($choice['value']) ? $choice['value'] : 'Option ' . ($choice_index + 1));
+                        // WPForms typically uses the label as the value when no explicit value is set
+                        // Store the label as the identifier since that's what WPForms uses
+                        $choice_identifier = $choice_label;
+                        
+                        // Format: field_id:checkbox:choice_label
+                        $fields[$field['id'] . ':checkbox:' . $choice_identifier] = $field['label'] . ': ' . $choice_label;
+                    }
                 }
             }
         }
