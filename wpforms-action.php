@@ -1,7 +1,7 @@
 <?php
 /*
  * Plugin Name: Aspire Software: WPForms Actions for Pardot
- * Version: 1.3.6
+ * Version: 1.4
  * Description: Posts leads to Pardot endpoints via a URL field displayed on form configuration and includes GA Connector integration for tracking
  * Author: Nick Tomkin (@ntomkin)
  * Author URI: https://www.linkedin.com/in/nicktomkin/
@@ -1080,9 +1080,9 @@ function wpforms_action_post_to_script($fields, $entry, $form_data, $entry_id) {
                         }
                         } // Close the else block from earlier
                         
-                        $updated_form_data[$field] = $is_checked ? '1' : '0';
+                        $updated_form_data[$field] = $is_checked ? 'true' : 'false';
                     } else {
-                        $updated_form_data[$field] = '0';
+                        $updated_form_data[$field] = 'false';
                     }
                 }
                 // Check if this is a Full Name sub-field (format: "field_id:first" or "field_id:last")
